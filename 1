@@ -1,0 +1,529 @@
+while [ "$1" != "" ]; do
+    case $1 in
+        -h | --help )
+                printf " This  have a lot of options that will help you installing some services on \e[\033[1;5;96m$HOSTNAME\n\n\n\e[0m"
+                printf " usage: dw_services [options]\n\n"
+                printf "        options:\n\n"
+                printf "          -a, --asterisk                to install a communication server (asterisk)\n\n"
+                printf "          -b, --dns, --bind9            to install DNS server (Bind9)\n\n"
+                printf "          -c, --cockpit,                to install a managment web interface\n\n"
+                printf "          -d, --dhcp, --isc-dhcp-server to install dhcp server (isc-dhcp-server)\n\n"
+                printf "          -e, --edit                    use this option to edit the \n\n"
+                printf "          -f, --ftp, --vsftpd           to install ftp server (vsftpd)\n\n"
+                printf "          -h, --help,                   shows an help page\n\n"
+                printf "          -i, --install                 use this option to use the  as a command\n                                        (dw_services instead of ./dw_services)\n\n"
+                printf "          -n, --nfs                     to install network file system (NFS)\n\n"
+                printf "          -N, --ntp                     to install time server (NTP)\n\n"
+                printf "          -o, --chat, --openfire        to install a chat server (openfire)\n\n"
+                printf "          -p, --mail, --postfix         to install a mail server (postfix)\n\n"
+                printf "          -r, --rsyslog                 to install sylog server (rsyslog)\n\n"
+                printf "          -s, --ssh, --openssh-server   to install ssh server (openssh-server)\n\n"
+                printf "          -S. --share, --samba          to install share server (samba)\n\n"
+                printf "          -v, --vnc,                    to install vnc service (remote desktop)\n\n"
+                printf "          -w, --apache, --web-server    to install web server (apache)\n\n"
+        ;;
+        -a | --asterisk )
+                printf " Installing \e[1;96mAsterisk\e[0m service\n\n"
+                apt install asterisk
+                while true; do
+                        printf "\n\n Please insert the full name for this account: "
+                        read fullname
+                        printf "\n\n Insert the username: "
+                        read user
+                        printf "\n\n Insert the password for $user: "
+                        read pass
+                        printf "\n\n Insert the extensions for $user: "
+                        read ext
+                        printf "\n\n Insert the email for voicemail: "
+                        read mail
+                        printf "[$user]\ntype=friend\nport=5060\nusername=$user\nnat=yes\nqualify=yes\nregcontext=registerstate\ncontext=from-internal\n" >> /etc/asterisk/sip.conf
+                        printf "[$user]\nfull name = $fullname\nsecret = $pass\nhassip = yes\ncontext = from-internal\nhost = dynamic\n" >> /etc/asterisk/users.conf
+                        printf "\n\n[vm-demo]\n" >> /etc/asterisk/voicemail.conf
+                        printf "$ext => 6969,$user,$mail" >> /etc/asterisk/voicemail.conf
+                        printf "\n\n[from-internal]\n" >> /etc/asterisk/extensions.conf
+                        printf "exten=>$ext,1,Answer()\nexten=>$ext,2,Dial(SIP/$user,10)\nexten=>$ext,3,Playback(vm-nobodyavail)\nexten=>$ext,4,VoiceMail($ext@vm-demo)\nexten=>$ext,5,Hangup()\n\n" >> /etc/asterisk/extensions.conf
+
+                        # New Account
+                        printf "\n\n Do you want to add another account? [Y/y|N/n]: "
+                        read out
+                        if [ "$out" == "N" ] || [ "$out" == "n" ]; then
+                                printf "\n\n Asterisk installed with success!\n\n"
+                                systemctl restart asterisk
+                                systemctl status asterisk
+                                break
+                        fi
+                done
+        ;;
+        -b | --bind9 | --dns )
+                printf " Installing \e[1;96mBind9\e[0m service\n\n"
+                apt install bind9 bind9utils
+
+                # Add Zones
+                printf "\n\n Insert the domain: "
+                read domain
+                printf "\n Insert the network ip address reversed without the last field, (example: 192.168.1.0 = 0.168.192): "
+                read network
+                printf "zone \"$domain\" IN {\n type master;\n  file \"/etc/bind/forward.$domain\";\n};\n\nzone \"$network.in-addr.arpa\" IN {\n        type master;\n  file \"/etc/bind/reverse.$domain\";\n};" >> /etc/bind/named.conf.local
+
+                # Create forward zone
+                printf "\n Insert the ip address of this server \"$HOSTNAME\": "
+                read serverip
+                printf "\n Please enter the last field of $serverip: (example: 192.168.0.10 = 10): "
+                read lip
+                cp /etc/bind/db.local /etc/bind/forward.$domain
+                sed -i "s/localhost. root.localhost/$HOSTNAME.$domain. root.$domain/" /etc/bind/forward.$domain
+                sed -i "s/localhost/$HOSTNAME/" /etc/bind/forward.$domain
+                sed -i "s/127.0.0.1/$serverip/" /etc/bind/forward.$domain
+                sed -i "s/@     IN      AAAA    ::1/$HOSTNAME   IN      A       $serverip/" /etc/bind/forward.$domain
+
+                # Create reverse zone
+                cp /etc/bind/db.local /etc/bind/reverse.$domain
+                sed -i "s/localhost. root.localhost/$HOSTNAME.$domain. root.$domain/" /etc/bind/reverse.$domain
+                sed -i "s/localhost/$HOSTNAME/" /etc/bind/reverse.$domain
+                sed -i "s/127.0.0.1/$serverip/" /etc/bind/reverse.$domain
+                sed -i "s/@     IN      AAAA    ::1/$lip        IN      PTR     $HOSTNAME/" /etc/bind/reverse.$domain
+
+                # Add other entries
+                printf "\n\n Do you want to enter some dns entries? [Y/y|N/n]: "
+                read dnsoption
+                if [ "$dnsoption" == "Y" ] || [ "$dnsoption" == "y" ]; then
+                        while true; do
+                                printf "\n\n Please enter the new entry hostname: "
+                                read enhost
+                                printf "\n Please enter the $enhost ip address: "
+                                read enip
+                                printf "\n Please enter the last field of $enip: (example: 192.168.0.10 = 10): "
+                                read enlastip
+                                printf "$enhost IN      A       $enip" >> /etc/bind/forward.$domain
+                                printf "$enlastip       IN      PTR     $enhost" >> /etc/bind/reverse.$domain
+                                printf "\n Do you want to add a new entry? [Y/y|N/n]: "
+                                read out
+                                if [ "$out" == "N" ] || [ "$out" == "n" ]; then
+                                        systemctl restart bind9
+                                        systemctl status bind9
+                                        break
+                                fi
+                        done
+                elif [ "$dnsoption" == "N" ] || [ "$dnsoption" == "n" ]; then
+                        printf "\n\n DNS Service installed with success!\n\n"
+                        systemctl restart bind9
+                        systemctl status bind9
+                        printf "\n\n"
+                else
+                        printf "\n\n Unknow option, sorry... :(\n\n"
+                fi
+        ;;
+        -c | --cockpit )
+                printf " Installing \e[1;96mCockpit\e[0m service\n\n"
+                apt install cockpit
+                systemctl enable cockpit.socket
+                printf "\n\n Do you want to change cockpit port? [Y/y|N/n]: "
+                read option
+                if [ "$option" == "Y" ] || [ "$option" == "y" ]; then
+                        printf "\n\n Insert the new port: "
+                        read newport
+                        sed -i "s/9090/$newport/" /lib/systemd/system/cockpit.socket
+                        systemctl daemon-reload
+                        systemctl restart cockpit.socket
+                        systemctl status cockpit.socket
+                        printf "\n\n Cockpit port changed to $newport with success!\n\n"
+                        printf "\n\n How to access to cockpit?\n\n"
+                        printf " In your browser insert: \n"
+                        printf "        https://[server_ip]:$newport OR https://[server_domain]:$newport\n\n"
+                elif [ "$option" == "N" ] || [ "$option" == "n" ]; then
+                        printf "\n\n How to access to cockpit?\n\n"
+                        printf " In your browser insert: \n"
+                        printf "        https://[server_ip]:9090 OR https://[server_domain]:9090\n\n"
+                else
+                        printf "\n\n Unknow option, sorry... :(\n\n"
+                fi
+                printf "\n\n Cockpit installed with success!\n\n"
+        ;;
+        -e | --edit )
+                nano /home/bin/dw_services
+                printf "  edited with success!\n\n"
+        ;;
+        -f | --ftp | --vsftpd )
+                printf " Installing \e[1;96mFTP Server\e[0m service\n\n"
+                apt install -y vsftpd
+                sed -i "s/#write_enable=YES/write_enable=YES/" /etc/vsftpd.conf
+                sed -i "s/#ascii_upload_enable=YES/ascii_upload_enable=YES/" /etc/vsftpd.conf
+                sed -i "s/#ascii_download_enable=YES/ascii_download_enable=YES/" /etc/vsftpd.conf
+                sed -i "s/#chroot_local_user=YES/chroot_local_user=NO/" /etc/vsftpd.conf
+                sed -i "s/#chroot_list_enable=YES/chroot_list_enable=YES/" /etc/vsftpd.conf
+                sed -i "s/#chroot_list_file=/etc/vsftpd.chroot_list/chroot_list_file=/etc/vsftpd.chroot_list/" /etc/vsftpd.conf
+                sed -i "s/#ls_recurse_enable=YES/ls_recurse_enable=YES/" /etc/vsftpd.conf
+                printf "\n\nlocal_root=public_html\nseccomp_sandbox=NO" >> /etc/vsftpd.conf
+                touch /etc/vsftpd.chroot_list
+                printf "\n\n Please insert the users that can use the ftp server."
+                while true; do
+                        printf "\n\n Insert the username: "
+                        read ftpuser
+                        printf "\n$ftpuser" >> /etc/vsftpd.chroot_list
+                        printf "\n\n Do you want to add another user? [Y/y|N/n]: "
+                        read ftpans
+                        if [ "$ftpans" == "N" ] || [ "$ftpans" == "n" ]; then
+                                break
+                        fi
+                done
+                systemctl restart vsftpd
+                systemctl status vsftpd
+                printf "\n\n FTP Server installed with success!\n\n"
+        ;;
+        -d | --dhcp | --isc-dhcp-server )
+                printf " Installing \e[1;96mDHCP Server\e[0m service\n\n"
+                apt install isc-dhcp-server
+                printf " Please insert the ip of the domain-name-server (separated by comma): "
+                read domainnameserver
+                sed -i "s/ns1.example.org, /$domainnameserver/" /etc/dhcp/dhcpd.conf
+                sed -i "s/ns2.example.org//" /etc/dhcp/dhcpd.conf
+                printf "\n\n Please insert the domain-name: "
+                read domainname
+                sed -i "s/example.org/$domainname/" /etc/dhcp/dhcpd.conf
+                printf "\n\n Preencha os dados para a criacao da scope \n\n"
+                printf " Insira o ip da rede (subnet): "
+                read subnet
+                printf "\n\n Insira a mascar da rede (netmask): "
+                read netmask
+                printf "\n\n Insira o primeiro ip do range: "
+                read rangei
+                printf "\n\n Insira o ultimo ip do range: "
+                read rangef
+                printf "\n\n Insira o ip do gateway: "
+                read gateway
+                printf "\n\nsubnet $subnet netmask $netmask {\n    range $rangei $rangef;\n    option routers $gateway;\n}" >> /etc/dhcp/dhcpd.conf
+                systemctl restart isc-dhcp-server
+                systemctl status isc-dhcp-server
+                printf "\n\n DHCP Server installed with success!\n\n"
+        ;;
+        -i | --install )
+                printf "\n\n Installing \e[1;96mDW Services\e[0m \n\n"
+                printf "\n\n Insert only the current path of the : (ex: /current/path): "
+                read sctpath
+                mkdir /home/bin
+                mv $sctpath/dw_services /home/bin/dw_services
+                chmod +x /home/bin/dw_services
+                printf "\n\nalias dw_services='. /home/bin/dw_services'" >> ~/.bashrc
+        ;;
+        -n | --nfs )
+                printf "\n\n Installing \e[1;96mNFS Server\e[0m service\n\n"
+                apt install -y nfs-kernel-server
+                mkdir /home/nfs
+                printf "\n\n The NFS default path of the shared folders is:\n"
+                printf "        /home/nfs/..\n\n"
+                printf " The default path can't be changed, to do that you need\n  to configure by your the service own.\n\n"
+                printf " Please insert the network of your server. (ex: 192.168.1.0/24): "
+                read nfsnet
+                while true; do
+                        printf "\n\n Insert the name of the folder to create and share: "
+                        read nfsfolder
+                        mkdir -m 777 /home/nfs/$nfsfolder
+                        printf "\n/home/nfs/$nfsfolder  $nfsnet(ro,no_subtree_check,sync)" >> /etc/exports
+                        printf "\n\n Do you want to add another folder? [Y/y|N/n]: "
+                        read nfsans
+                        if [ "$nfsans" == "N" ] || [ "$nfsans" == "n" ]; then
+                                break
+                        fi
+                done
+                exportfs -av
+                /etc/init.d/nfs-kernel-server restart
+                showmount -e
+                printf "\n\n NFS Server installed with success!\n\n"
+        ;;
+        -N | --ntp )
+                printf "\n\n Installing \e[1;96mNTP Server\e[0m service\n\n"
+                apt install -y ntp
+                sed -i "s/0.ubuntu.pool.ntp.org/0.pt.pool.ntp.org/" /etc/ntp.conf
+                sed -i "s/1.ubuntu.pool.ntp.org/1.europe.pool.ntp.org/" /etc/ntp.conf
+                sed -i "s/2.ubuntu.pool.ntp.org/2.pt.pool.ntp.org/" /etc/ntp.conf
+                sed -i "s/3.ubuntu.pool.ntp.org/3.europe.pool.ntp.org/" /etc/ntp.conf
+                service ntp reload
+                printf "\n\n How to configure your NTP clients (Ubuntu)?\n"
+                printf "        1- open /etc/ntp.conf file on your clients;\n"
+                printf "        2- delete the default pools (0.###/1.###/2.###/3.###);\n"
+                printf "        3- delete the fallback server too (server ntp.ubuntu.com);\n"
+                printf "        4- add you server (server your_server), place it where the pools were;\n"
+                printf "        5- Restart the NTP daemon on the NTP client (service ntp reload);\n"
+                printf "        6- Check whether time synchronization is successful (ntpq -p)."
+
+                printf "\n\n NTP Server installed with success!\n\n"
+        ;;
+        -o | --chat | --openfire )
+                printf "\n\n Installing \e[1;96mOpenfire Chat Server\e[0m service\n\n"
+                apt install default-jre
+                cd /
+                wget -O openfire.deb https://www.igniterealtime.org/downloadServlet?filename=openfire/openfire_4.5.2_all.deb
+                dpkg -i openfire.deb
+                printf "\n\n Do you want to configure LDAP with DB? [Y/y|N/n]: "
+                read openfireop
+
+                if [ "$openfireop" == "Y" ] || [ "$openfireop" == "y" ]; then
+                        printf "\n\n \e[1;96mAlert:\e[0m The database that will be used is mysql, to use another one\n you will need to configure it manually!\n\n"
+                        sleep 5
+                        apt install mysql-server
+                        systemctl start mysql
+                        systemctl enable mysql
+                        printf "\n\n Insert an user for mysql: "
+                        read mysqluser
+                        printf " Insert a password for $mysqluser: "
+                        read mysqlpass
+                        printf "\n\n Please insert the password for root to configure mysql server.\n\n"
+
+                        # Mysql Server Config
+                        printf "CREATE USER '$mysqluser'@'localhost' IDENTIFIED BY '$mysqlpass';\nGRANT ALL PRIVILEGES ON *.* TO '$mysqluser'@'localhost';\nFLUSH PRIVILEGES;\ncreate database openfire;\nuse openfire;\nsource /usr/share/openfire/resources/database/openfire_mysql.sql;\nshow tables;" | mysql -u root
+
+                        # Change Openfire port
+                        printf "\n\n Do you want to change the default port?\n"
+                        printf "        Default port: 9090\n\n"
+                        printf " Answer [Y/y|N/n]: "
+                        read openfireanswer
+
+                        if [ "$openfireanswer" == "Y" ] || [ "$openfireanswer" == "y" ]; then
+                                printf "\n\n Insert the new port: "
+                                read openport
+                                sed -i "s/9090/$openport/" /usr/share/openfire/conf/openfire.xml
+                                secport=$(($openport+1))
+                                sed -i "s/9091/$secport/" /usr/share/openfire/conf/openfire.xml
+
+                                systemctl restart openfire
+                                printf "\n\n How to access and configure by your own?\n\n"
+                                printf " Easy! In your browser just put the following address:\n"
+                                printf "        http://[your_ip]:$openport OR https://[your_ip]:$secport\n\n"
+                        else
+                                systemctl start openfire
+                                printf "\n\n How to access and configure by your own?\n\n"
+                                printf " Easy! In your browser just put the following address:\n"
+                                printf "        http://[your_ip]:9090\n\n"
+                        fi
+                elif [ "$openfireop" == "N" ] || [ "$openfireop" == "n" ]; then
+
+                        # Change Openfire port
+                        printf "\n\n Do you want to change the default port?\n"
+                        printf "        Default port: 9090\n\n"
+                        printf " Answer [Y/y|N/n]: "
+                        read openans
+
+                        if [ "$openans" == "Y" ] || [ "$openans" == "y" ]; then
+                                printf "\n\n Insert the new port: "
+                                read openport
+                                sed -i "s/9090/$openport/" /usr/share/openfire/conf/openfire.xml
+                                secport=$(($openport+1))
+                                sed -i "s/9091/$secport/" /usr/share/openfire/conf/openfire.xml
+
+                                systemctl restart openfire
+                                printf "\n\n How to access and configure by your own?\n\n"
+                                printf " Easy! In your browser just put the following address:\n"
+                                printf "        http://[your_ip]:$openport OR https://[your_ip]:$secport\n\n"
+                        else
+                                systemctl start openfire
+                                printf "\n\n How to access and configure by your own?\n\n"
+                                printf " Easy! In your browser just put the following address:\n"
+                                printf "        http://[your_ip]:9090\n\n"
+                        fi
+                else
+                        printf "\n\n Unknow option, sorry... :(\n\n"
+                fi
+                printf "\n\nOpenfire Chat Server installed with success!\n\n"
+        ;;
+        -p | --mail | --postfix )
+                printf " Installing \e[1;96mMail Server\e[0m service\n\n"
+                printf " Please insert the mail domain: "
+                read maildomain
+                apt install debconf-utils
+                debconf-set-selections <<< "postfix postfix/mailname string $maildomain"
+                debconf-set-selections <<< "postfix postfix/main_mailer_type string 'Internet Site'"
+                apt install -y postfix
+                apt install -y mailutils
+                debconf-set-selections <<< "courier-base courier-base/webadmin-configmode boolean false"
+                apt install -y courier-imap
+                apt install -y gamin
+
+                # Configure main.cf
+                printf "\n Insert your domain and the server ip address [separated by commas]: "
+                read maildest
+                sed -i "s/\$myhostname,/\$myhostname, $maildest,/" /etc/postfix/main.cf
+                printf "\n Insert your network ip address: "
+                read mailnetip
+                printf " Insert your network mask [0-31]: "
+                read mailnetmask
+                sed -i "s/\[::1\]\/128/\[::1\]\/128, $mailnetip\/$mailnetmask/" /etc/postfix/main.cf
+                printf "home_mailbox = Maildir/" >> /etc/postfix/main.cf
+                maildirmake /etc/skel/Maildir
+                /etc/init.d/courier-imap restart
+                /etc/init.d/courier-authdaemon restart
+                /etc/init.d/postfix restart
+                systemctl enable courier-authdaemon
+                /etc/init.d/postfix status
+                printf "\n\n Mail service installed with success!"
+                printf "\n      Now you just need to create or recreate your users account in order to automatically add the mailbox.\n\n"
+        ;;
+        -r | --rsyslog )
+                printf " Installing \e[1;96mRsyslog Server\e[0m service\n\n"
+                apt install rsyslog
+                printf "\n\n Insert your network ip. (ex: 192.168.1.0):  "
+                read rsysnet
+                printf "\n\n Insert the mask of your network (rsysnet). [0-24]: "
+                read rsysmask
+                sed -i "s/#module(load=\"imudp\")/module(load=\"imudp\")/" /etc/rsyslog.conf
+                sed -i "s/#input(type=\"imudp\" port=\"514\")/input(type=\"imudp\" port=\"514\")/" /etc/rsyslog.conf
+                sed -i "s/#module(load=\"imtcp\")/module(load=\"imtcp\")/" /etc/rsyslog.conf
+                sed -i "s/#input(type=\"imtcp\" port=\"514\")/input(type=\"imtcp\" port=\"514\")\n\n#Where to Listen\n\$AllowedSender TCP, 127.0.0.1, $rsysnet\/$rsysmask\n\n#Template, Where and how to store, in server\n\$template remote-incoming-logs, \"\/var\/log\/%HOSTNAME%\/%PROGRAMNAME%.log\"\n\n#Listen to incoming logs in the network\n*.* ?remote-incoming-logs\n\n#Where store remote logs\n\& ~/" /etc/rsyslog.conf
+                ufw allow 514/tcp
+                ufw allow 514/udp
+                systemctl restart rsyslog
+                systemctl status rsyslog
+                ss -tunelp | grep 514
+                printf "\n\n Rsyslog service installed with success!\n\n"
+        ;;
+        -s | --ssh | --openssh-server )
+                printf " Installing \e[1;96mSSH Server\e[0m service\n\n"
+                apt install -y openssh-server
+                sed -i "s/#PermitRootLogin prohibit-password/PermitRootLogin no/" /etc/ssh/sshd_config
+                systemctl restart ssh
+                systemctl status ssh
+                printf "\n\n SSH Server intalled with success!\n\n"
+        ;;
+        -S | --share | --samba )
+                printf " Installing \e[1;96mSamba Server\e[0m service\n\n"
+                apt install -y samba
+                mkdir /home/shares
+                printf "\n\n Do you want to add users to samba? [Y/y|N/n]: "
+                read userans
+                if [ "$userans" == "Y" ] || [ "$userans" == "y" ]; then
+                        while true; do
+                                printf "\n\n Insert the username: "
+                                read smbuser
+                                smbpasswd -a $smbuser
+                                printf "\n\n Do you want to add another one? [Y/y|N/n]: "
+                                read smbuserans
+                                if [ "$smbuserans" == "N" ] || [ "$smbuserans" == "n" ]; then
+                                        break
+                                fi
+                        done
+                fi
+                printf "\n\n Atention!: The default folder of the shared folders is:\n"
+                printf "        /home/shares/..\n\n"
+                printf "        if you want the default folder in another location, stop the \n  and config the service by yourself.\n\n"
+                while true; do
+                        printf "\n\n Insert the name of the folder: "
+                        read foldername
+                        mkdir /home/shares/$foldername
+                        printf "\n\n Do you want to insert invalid users? [Y/n|N/n]: "
+                        read folderans
+                        if [ "$folderans" == "Y" ] || [ "$folderans" == "y" ];then
+                                printf "\n\n Insert the invalid/s user/s (separated by comma): "
+                                read invusers
+                        fi
+                        printf "\n\n Insert the permissons of the folder: \n"
+                        printf "        Write and Read - wr\n"
+                        printf "        Read Only - r\n"
+                        printf "\n Answer [wr/r]: "
+                        read folderperm
+                        if [ "$folderperm" == "wr" ];then
+                                chmod a=rxw /home/shares/$foldername/
+                                printf "Allow guests? [yes/no]: "
+                                read smbguests
+                                printf "\n\n[$foldername]\ncomment = Samba\npath = /home/shares/$foldername\nguest ok = $smbguests\nwriteable = yes\ninvalid users = $invusers" >> /etc/samba/smb.conf
+                        else
+                                chmod a=rx /home/shares/$foldername/
+                                printf "Allow guests? [yes/no]: "
+                                read smbguests
+                                printf "\n\n[$foldername]\ncomment = Samba\npath = /home/shares/$foldername\nguest ok = $smbguests\nread only = yes\ninvalid users = $invusers" >> /etc/samba/smb.conf
+                        fi
+                        printf "\n\n Do you want to add another folder? [Y/y|N/n]: "
+                        read smbnewfolder
+                        if [ "$smbnewfolder" == "N" ] || [ "$smbnewfolder" == "n" ];then
+                                break
+                        fi
+                done
+                service nmbd restart
+                systemctl restart samba
+                systemctl status samba
+                printf "\n\n Samba Server intalled with success!\n\n"
+        ;;
+        -v | --vnc )
+                printf " Installing \e[1;96mVNC Server\e[0m service\n\n"
+                apt install tightvncserver xfce4 xfce4-goodies
+                vncpasswd
+                printf "#!/bin/sh\nunset SESSION_MANAGER\nunset DBUS_SESSION_BUS_ADDRESS\nstartxfce4 &" > ~/.vnc/xstartup
+                chmod +x ~/.vnc/xstartup
+                vncserver
+                printf "\n\n VNC Server intalled with success!\n\n"
+        ;;
+        -w | --apache | --web-server )
+                printf " Installing \e[1;96mApache Server\e[0m service\n\n"
+                apt install -y apache2
+                printf "\n\n Do you want to import a website now? [Y/y|N/n] "
+                read webans
+                if [ "$webans" == "Y" ] || [ "$webans" == "y" ]; then
+                        printf "\n\n Do you want to import from a local path or remote path? [local/remote]: "
+                        read webpath
+                        if [ "$webpath" == "local" ]; then
+                                printf "\n\n Insert the path where all the files of the website are located (you can import a compressed file, but this  doesn't uncompress files)\n"
+                                printf "        ex: /local/path/* or /local/path/file.zip\n\n"
+                                printf " Please insert the path: "
+                                read lpath
+                                rm /var/www/html/index.html
+                                cp -R $lpath /var/www/html/
+                                chown -R www-data:www-data /var/www/html/
+                                chmod g+wxr /var/www/html
+                                printf "\n\n File imported with success!\n\n"
+                        elif [ "$webpath" == "remote" ]; then
+                                printf "\n\n Atention!: This  does not uncompress files.\n\n"
+                                printf " Insert the link to get the website files: "
+                                read rpath
+                                rm /var/www/html/index.html
+                                wget -P /var/www/html $rpath
+                                chown -R www-data:www-data /var/www/html/
+                                chmod g+wxr /var/www/html
+                                printf "\n\n File imported with success!\n\n"
+                        else
+                                printf "\n\n Unknow option, sorry... :(\n\n"
+                        fi
+
+                        # Change apache default port
+                        printf "\n\n Do you want to change the http default port?\n"
+                        printf "        Default port: 80"
+                        printf "\n\n Answer [Y/y|N/n]: "
+                        read webport
+                        if [ "$webport" == "Y" ] || [ "$webport" == "y" ]; then
+                                printf "\n\n Insert the new http default port: "
+                                read webnewport
+                                sed -i "s/80/$webnewport/" /etc/apache2/ports.conf
+                                sed -i "s/80/$webnewport/" /etc/apache2/sites-available/000-default.conf
+                                printf "\n\n How to access to the webpage?\n\n"
+                                printf " In your browser insert: \n"
+                                printf "        http://[server_ip]:$webnewport OR http://[server_domain]:$webnewport\n\n"
+                                systemctl reload apache2
+                        elif [ "$webport" == "N" ] || [ "$webport" == "n" ]; then
+                                printf "\n\n How to access to the webpage?\n\n"
+                                printf " In your browser insert: \n"
+                                printf "        http://[server_ip] OR http://[server_domain]\n\n"
+                        else
+                                printf "\n\n Unknow option, sorry... :(\n\n"
+                        fi
+
+                        systemctl restart apache2
+                        systemctl status apache2
+                        printf "\n\n Apache Server intalled with success!\n\n"
+                elif [ "$webans" == "N" ] || [ "$webans" == "n" ]; then
+                        systemctl restart apache2
+                        systemctl status apache2
+                        printf "\n\n Where do I import the website?\n"
+                        printf "         You can import you website to the default path: /var/www/html\n\n"
+                        printf "\n\n How to access to the webpage?\n\n"
+                        printf " In your browser insert: \n"
+                        printf "        http://[server_ip] OR http://[server_domain]\n\n"
+                        printf "\n\n Apache Server intalled with success!\n\n"
+                else
+                        printf "\n\n Unknow option, sorry... :(\n\n"
+                fi
+        ;;
+        * )
+                printf " Use \"\e[1;096mdw_services --help\e[0m\" to see how to use."
+        ;;
+    esac
+    shift
+done
+
+printf "\n\n"
